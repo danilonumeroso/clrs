@@ -70,6 +70,7 @@ class OutputClass(_OrderedEnum):
 Spec = Dict[str, Tuple[Stage, Location, Type]]
 
 CLRS_21_ALGS = [
+    'a_star',
     'bellman_ford',
     'bfs',
     'binary_search',
@@ -300,6 +301,19 @@ SPECS = types.MappingProxyType({
         's_last': (Stage.HINT, Location.NODE, Type.MASK_ONE),
         'time': (Stage.HINT, Location.GRAPH, Type.SCALAR),
         'phase': (Stage.HINT, Location.GRAPH, Type.MASK)
+    },
+    'a_star': {
+        'pos': (Stage.INPUT, Location.NODE, Type.SCALAR),
+        's': (Stage.INPUT, Location.NODE, Type.MASK_ONE),
+        'A': (Stage.INPUT, Location.EDGE, Type.SCALAR),
+        'adj': (Stage.INPUT, Location.EDGE, Type.MASK),
+        'pi': (Stage.OUTPUT, Location.NODE, Type.POINTER),
+        'pi_h': (Stage.HINT, Location.NODE, Type.POINTER),
+        'd': (Stage.HINT, Location.NODE, Type.SCALAR),
+        'f': (Stage.HINT, Location.NODE, Type.SCALAR),
+        'mark': (Stage.HINT, Location.NODE, Type.MASK),
+        'in_queue': (Stage.HINT, Location.NODE, Type.MASK),
+        'u': (Stage.HINT, Location.NODE, Type.MASK_ONE)
     },
     'articulation_points': {
         'pos': (Stage.INPUT, Location.NODE, Type.SCALAR),

@@ -26,6 +26,7 @@ Currently implements the following:
 - Prim's minimum spanning tree (Prim, 1957)
 - Bellman-Ford's single-source shortest path (Bellman, 1958)
 - Dijkstra's single-source shortest path (Dijkstra, 1959)
+- A* search algorithm (Hart et al., 1968)
 - DAG shortest path
 - Floyd-Warshall's all-pairs shortest paths (Floyd, 1962)
 - Edmonds-Karp bipartite matching (Edmund & Karp, 1972)
@@ -36,7 +37,7 @@ See "Introduction to Algorithms" 3ed (CLRS3) for more information.
 # pylint: disable=invalid-name
 
 
-from typing import Tuple
+from typing import Tuple, Callable
 
 import chex
 from clrs._src import probing
@@ -1199,9 +1200,7 @@ def dijkstra(A: _Array, s: int) -> _Out:
 
   chex.assert_rank(A, 2)
   probes = probing.initialize(specs.SPECS['dijkstra'])
-
   A_pos = np.arange(A.shape[0])
-
   probing.push(
       probes,
       specs.Stage.INPUT,
@@ -1253,6 +1252,84 @@ def dijkstra(A: _Array, s: int) -> _Out:
             'in_queue': np.copy(in_queue),
             'u': probing.mask_one(u, A.shape[0])
         })
+
+  probing.push(probes, specs.Stage.OUTPUT, next_probe={'pi': np.copy(pi)})
+  probing.finalize(probes)
+
+  return pi, probes
+
+def a_star(A: _Array, h: Callable, s: int, t: int) -> _Out:
+  """A* search algorithm (Hart et al., 1968)"""
+
+  chex.assert_rank(A, 2)
+  probes = probing.initialize(specs.SPECS['a_star'])
+
+  A_pos = np.arange(A.shape[0])
+
+  probing.push(
+      probes,
+      specs.Stage.INPUT,
+      next_probe={
+        'pos': np.copy(A_pos) * 1.0 / A.shape[0],
+        's': probing.mask_one(s, A.shape[0]),
+        'A': np.copy(A),
+        'adj': probing.graph(np.copy(A))
+      })
+
+  d = np.zeros(A.shape[0])
+  mark = np.zeros(A.shape[0])
+  in_queue = np.zeros(A.shape[0])
+  f = np.zeros(A.shape[0])
+  pi = np.arange(A.shape[0])
+  d[s] = 0
+  f[s] = h(s)
+  in_queue[s] = 1
+
+  probing.push(
+    probes,
+    specs.Stage.HINT,
+    next_probe={
+      'pi_h': np.copy(pi),
+      'd': np.copy(d),
+      'f': np.copy(f),
+      'mark': np.copy(mark),
+      'in_queue': np.copy(in_queue),
+      'u': probing.mask_one(s, A.shape[0])
+    })
+
+  while in_queue.any():
+    u = np.argsort(f + (1.0 - in_queue) * 1e9)[0]  # drop-in for extract-min
+    print("q", u)
+    if u == t:
+      break
+
+    if in_queue[u] == 0:
+      break
+
+    in_queue[u] = 0
+    mark[u] = 1
+
+    for v in range(A.shape[0]):
+      if A[u, v] != 0:
+        if mark[v] == 0 or d[u] + A[u, v] < d[v]:
+          print("n", v)
+          pi[v] = u
+          d[v] = d[u] + A[u, v]
+          f[v] = d[v] + h(v)
+          mark[v] = 1
+          in_queue[v] = 1
+
+    probing.push(
+      probes,
+      specs.Stage.HINT,
+      next_probe={
+        'pi_h': np.copy(pi),
+        'd': np.copy(d),
+        'f': np.copy(f),
+        'mark': np.copy(mark),
+        'in_queue': np.copy(in_queue),
+        'u': probing.mask_one(u, A.shape[0])
+      })
 
   probing.push(probes, specs.Stage.OUTPUT, next_probe={'pi': np.copy(pi)})
   probing.finalize(probes)

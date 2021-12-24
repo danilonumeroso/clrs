@@ -196,6 +196,15 @@ class GraphsTest(absltest.TestCase):
     out, _ = graphs.dijkstra(WEIGHTED_DIRECTED, 0)
     np.testing.assert_array_equal(expected, out)
 
+  def test_a_star(self):
+    expected = np.array([0, 0, 0, 1, 1])
+    out, _ = graphs.a_star(WEIGHTED_UNDIRECTED, h=lambda x: 0, s=0, t=4)
+    np.testing.assert_array_equal(expected, out)
+
+    expected = np.array([0, 2, 0, 2, 3])
+    out, _ = graphs.a_star(WEIGHTED_DIRECTED, h=lambda x: min(WEIGHTED_DIRECTED[x]), s=0, t=4)
+    np.testing.assert_array_equal(expected, out)
+
   def test_floyd_warshall(self):
     expected = np.array([0, 2, 0, 2, 3])
     out, _ = graphs.floyd_warshall(WEIGHTED_DIRECTED)
