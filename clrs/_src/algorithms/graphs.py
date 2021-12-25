@@ -1299,7 +1299,7 @@ def a_star(A: _Array, h: Callable, s: int, t: int) -> _Out:
 
   while in_queue.any():
     u = np.argsort(f + (1.0 - in_queue) * 1e9)[0]  # drop-in for extract-min
-    print("q", u)
+
     if u == t:
       break
 
@@ -1312,7 +1312,6 @@ def a_star(A: _Array, h: Callable, s: int, t: int) -> _Out:
     for v in range(A.shape[0]):
       if A[u, v] != 0:
         if mark[v] == 0 or d[u] + A[u, v] < d[v]:
-          print("n", v)
           pi[v] = u
           d[v] = d[u] + A[u, v]
           f[v] = d[v] + h(v)

@@ -86,6 +86,22 @@ WEIGHTED_UNDIRECTED = np.array([
     [X, 2, 1, 5, X],
 ])
 
+WEIGHTED_UNDIRECTED_2 = np.array([
+    [X, 6, X, X, X, 3, X, X, X, X],
+    [6, X, 3, 2, X, X, X, X, X, X],
+    [X, 3, X, 1, 5, X, X, X, X, X],
+    [X, 2, 1, X, 8, X, X, X, X, X],
+    [X, X, 5, 8, X, X, X, X, 5, 5],
+    [3, X, X, X, X, X, 1, 7, X, X],
+    [X, X, X, X, X, 1, X, X, 3, X],
+    [X, X, X, X, X, 7, X, X, 2, X],
+    [X, X, X, X, 5, X, 3, 2, X, 3],
+    [X, X, X, X, 5, X, X, X, 3, X]
+])
+
+WEIGHTED_UNDIRECTED_2_HEURISTICS = np.array([
+  10, 8, 5, 7, 3, 6, 5, 3, 1, 0
+])
 
 # Bipartite graphs.
 
@@ -196,13 +212,18 @@ class GraphsTest(absltest.TestCase):
     out, _ = graphs.dijkstra(WEIGHTED_DIRECTED, 0)
     np.testing.assert_array_equal(expected, out)
 
-  def test_a_star(self):
-    expected = np.array([0, 0, 0, 1, 1])
-    out, _ = graphs.a_star(WEIGHTED_UNDIRECTED, h=lambda x: 0, s=0, t=4)
+    expected = np.array([0, 0, 1, 1, 8, 0, 5, 8, 6, 8])
+    out, _ = graphs.dijkstra(WEIGHTED_UNDIRECTED_2, 0)
     np.testing.assert_array_equal(expected, out)
 
-    expected = np.array([0, 2, 0, 2, 3])
-    out, _ = graphs.a_star(WEIGHTED_DIRECTED, h=lambda x: min(WEIGHTED_DIRECTED[x]), s=0, t=4)
+  def test_a_star(self):
+    expected = np.array([0, 0, 0, 0, 8, 0, 5, 8, 6, 8])
+    heuristic = lambda u: WEIGHTED_UNDIRECTED_2_HEURISTICS[u]
+    out, _ = graphs.a_star(WEIGHTED_UNDIRECTED_2, h=heuristic, s=0, t=9)
+    np.testing.assert_array_equal(expected, out)
+
+    expected = np.array([0, 0, 1, 1, 8, 0, 5, 8, 6, 8])
+    out, _ = graphs.a_star(WEIGHTED_UNDIRECTED_2, h=lambda x: 0, s=0, t=9)
     np.testing.assert_array_equal(expected, out)
 
   def test_floyd_warshall(self):
