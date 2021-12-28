@@ -573,6 +573,7 @@ SAMPLERS = {
     'bfs': BfsSampler,
     'mst_kruskal': MSTSampler,
     'mst_prim': BellmanFordSampler,
+    'a_star': BellmanFordSampler,
     'bellman_ford': BellmanFordSampler,
     'dag_shortest_paths': DAGPathSampler,
     'dijkstra': BellmanFordSampler,
