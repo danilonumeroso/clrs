@@ -17,8 +17,6 @@
 
 import abc
 import collections
-import os
-import pickle as pkl
 import types
 
 from typing import Any, Callable, List, Optional, Tuple
@@ -69,7 +67,6 @@ class Sampler(abc.ABC):
       num_samples: int,
       *args,
       seed: Optional[int] = None,
-      file_name: Optional[str] = None,
       **kwargs,
   ):
     """Initializes a `Sampler`.
@@ -80,8 +77,6 @@ class Sampler(abc.ABC):
       num_samples: Number of algorithm unrolls to sample.
       *args: Algorithm args.
       seed: RNG seed.
-      file_name: file_name where the dataset is stored. If None,
-        the dataset is generated on the fly (slower).
       **kwargs: Algorithm kwargs.
     """
 
@@ -93,17 +88,9 @@ class Sampler(abc.ABC):
     outputs = []
     hints = []
 
-    file_probes = None
-    if file_name is not None:
-      with open(file_name, 'rb') as f:
-        file_probes = pkl.load(f)
-
-    for i in range(num_samples):
-      if file_name is None:
-        data = self._sample_data(*args, **kwargs)
-        _, probes = algorithm(*data)
-      else:
-        probes = file_probes[i]
+    for _ in range(num_samples):
+      data = self._sample_data(*args, **kwargs)
+      _, probes = algorithm(*data)
       inp, outp, hint = probing.split_stages(probes, spec)
       inputs.append(inp)
       outputs.append(outp)
@@ -172,6 +159,41 @@ class Sampler(abc.ABC):
       mat = mat.astype(float) * weights
     return mat
 
+  def _random_community_graph(self, nb_nodes, k=4, p=0.5, eps=0.01,
+                              directed=False, acyclic=False, weighted=False,
+                              low=0.0, high=1.0):
+    """Random perturbed k-community graph."""
+    mat = np.zeros((nb_nodes, nb_nodes))
+    if k > nb_nodes:
+      raise ValueError(f'Cannot generate graph of too many ({k}) communities.')
+    los, his = [], []
+    lo = 0
+    for i in range(k):
+      if i == k - 1:
+        hi = nb_nodes
+      else:
+        hi = lo + nb_nodes // k
+      mat[lo:hi, lo:hi] = self._random_er_graph(
+          hi - lo, p=p, directed=directed,
+          acyclic=acyclic, weighted=weighted,
+          low=low, high=high)
+      los.append(lo)
+      his.append(hi)
+      lo = hi
+    toggle = self._random_er_graph(nb_nodes, p=eps, directed=directed,
+                                   acyclic=acyclic, weighted=weighted,
+                                   low=low, high=high)
+
+    # Prohibit closing new cycles
+    for i in range(k):
+      for j in range(i):
+        toggle[los[i]:his[i], los[j]:his[j]] *= 0
+
+    mat = np.where(toggle > 0.0, (1.0 - (mat > 0.0)) * toggle, mat)
+    p = self._rng.permutation(nb_nodes)  # To allow nontrivial solutions
+    mat = mat[p, :][:, p]
+    return mat
+
   def _random_bipartite_graph(self, n, m, p=0.25):
     """Random bipartite graph-based flow network."""
     nb_nodes = n + m + 2
@@ -184,61 +206,11 @@ class Sampler(abc.ABC):
     return mat
 
 
-def _join_prefix(folder, prefix):
-  return None if folder is None else os.path.join(folder, prefix)
-
-
-def clrs21_train(name: str, folder: Optional[str] = None) -> Tuple[
-    Sampler, specs.Spec]:
-  """Builds a CLRS-21 training sampler for algorithm specified by `name`."""
-  if name not in specs.CLRS_21_ALGS:
-    raise NotImplementedError(f'Algorithm {name} not supported in CLRS-21.')
-  sampler = build_sampler(
-      name,
-      seed=CLRS21['train']['seed'],
-      num_samples=CLRS21['train']['num_samples'],
-      length=CLRS21['train']['length'],
-      file_name=_join_prefix(folder, 'train_{}.pkl'.format(name)),
-  )
-  return sampler
-
-
-def clrs21_val(name: str, folder: Optional[str] = None) -> Tuple[
-    Sampler, specs.Spec]:
-  """Builds a CLRS-21 validation sampler for algorithm specified by `name`."""
-  if name not in specs.CLRS_21_ALGS:
-    raise NotImplementedError(f'Algorithm {name} not supported in CLRS-21.')
-  sampler = build_sampler(
-      name,
-      seed=CLRS21['val']['seed'],
-      num_samples=CLRS21['val']['num_samples'],
-      length=CLRS21['val']['length'],
-      file_name=_join_prefix(folder, 'val_{}.pkl'.format(name)),
-  )
-  return sampler
-
-
-def clrs21_test(name: str, folder: Optional[str] = None) -> Tuple[
-    Sampler, specs.Spec]:
-  """Builds a CLRS-21 testing sampler for algorithm specified by `name`."""
-  if name not in specs.CLRS_21_ALGS:
-    raise NotImplementedError(f'Algorithm {name} not supported in CLRS-21.')
-  sampler = build_sampler(
-      name,
-      seed=CLRS21['test']['seed'],
-      num_samples=CLRS21['test']['num_samples'],
-      length=CLRS21['test']['length'],
-      file_name=_join_prefix(folder, 'test_{}.pkl'.format(name)),
-  )
-  return sampler
-
-
 def build_sampler(
     name: str,
     num_samples: int,
     *args,
     seed: Optional[int] = None,
-    file_name: Optional[str] = None,
     **kwargs,
 ) -> Tuple[Sampler, specs.Spec]:
   """Builds a sampler. See `Sampler` documentation."""
@@ -248,8 +220,7 @@ def build_sampler(
   spec = specs.SPECS[name]
   algorithm = getattr(algorithms, name)
   sampler = SAMPLERS[name](
-      algorithm, spec, num_samples, seed=seed,
-      file_name=file_name, *args, **kwargs)
+      algorithm, spec, num_samples, seed=seed, *args, **kwargs)
   return sampler, spec
 
 
@@ -403,7 +374,7 @@ class ArticulationSampler(Sampler):
   def _sample_data(
       self,
       length: int,
-      p: float = 0.3,
+      p: float = 0.2,
   ):
     graph = self._random_er_graph(
         nb_nodes=length, p=p, directed=False, acyclic=False, weighted=False)
@@ -411,12 +382,12 @@ class ArticulationSampler(Sampler):
 
 
 class MSTSampler(Sampler):
-  """MST sampler."""
+  """MST sampler for Kruskal's algorithm."""
 
   def _sample_data(
       self,
       length: int,
-      p: float = 0.5,
+      p: float = 0.2,  # lower p to account for class imbalance
       low: float = 0.,
       high: float = 1.,
   ):
@@ -473,6 +444,43 @@ class DAGPathSampler(Sampler):
         high=high)
     source_node = self._rng.choice(length)
     return [graph, source_node]
+
+
+class FloydWarshallSampler(Sampler):
+  """Sampler for all-pairs shortest paths."""
+
+  def _sample_data(
+      self,
+      length: int,
+      p: float = 0.5,
+      low: float = 0.,
+      high: float = 1.,
+  ):
+    graph = self._random_er_graph(
+        nb_nodes=length,
+        p=p,
+        directed=False,
+        acyclic=False,
+        weighted=True,
+        low=low,
+        high=high)
+    return [graph]
+
+
+class SccSampler(Sampler):
+  """Sampler for strongly connected component (SCC) tasks."""
+
+  def _sample_data(
+      self,
+      length: int,
+      k: int = 4,
+      p: float = 0.5,
+      eps: float = 0.01,
+  ):
+    graph = self._random_community_graph(
+        nb_nodes=length, k=k, p=p, eps=eps,
+        directed=True, acyclic=False, weighted=False)
+    return [graph]
 
 
 class BipartiteSampler(Sampler):
@@ -542,11 +550,18 @@ class SegmentsSampler(Sampler):
 
 
 class ConvexHullSampler(Sampler):
-  """Convex hull sampler of points from (U[0, 1], U[0, 1])."""
+  """Convex hull sampler of points over a disk of radius r."""
 
-  def _sample_data(self, length: int, low: float = 0., high: float = 1.):
-    xs = self._random_sequence(length=length, low=low, high=high)
-    ys = self._random_sequence(length=length, low=low, high=high)
+  def _sample_data(self, length: int, origin_x: float = 0.,
+                   origin_y: float = 0., radius: float = 2.):
+
+    thetas = self._random_sequence(length=length, low=0.0, high=2.0 * np.pi)
+    rs = radius * np.sqrt(
+        self._random_sequence(length=length, low=0.0, high=1.0))
+
+    xs = rs * np.cos(thetas) + origin_x
+    ys = rs * np.sin(thetas) + origin_y
+
     return [xs, ys]
 
 
@@ -567,7 +582,7 @@ SAMPLERS = {
     'task_scheduling': TaskSampler,
     'dfs': DfsSampler,
     'topological_sort': TopoSampler,
-    'strongly_connected_components': DfsSampler,
+    'strongly_connected_components': SccSampler,
     'articulation_points': ArticulationSampler,
     'bridges': ArticulationSampler,
     'bfs': BfsSampler,
@@ -577,7 +592,7 @@ SAMPLERS = {
     'bellman_ford': BellmanFordSampler,
     'dag_shortest_paths': DAGPathSampler,
     'dijkstra': BellmanFordSampler,
-    'floyd_warshall': MSTSampler,
+    'floyd_warshall': FloydWarshallSampler,
     'bipartite_matching': BipartiteSampler,
     'naive_string_matcher': MatcherSampler,
     'kmp_matcher': MatcherSampler,

@@ -39,6 +39,8 @@ flags.DEFINE_boolean('encode_hints', True,
                      'Whether to provide hints as model inputs.')
 flags.DEFINE_boolean('decode_hints', True,
                      'Whether to provide hints as model outputs.')
+flags.DEFINE_boolean('use_lstm', False,
+                     'Whether to insert an LSTM after message passing.')
 flags.DEFINE_boolean('decode_diffs', True,
                      'Whether to predict masks within the model.')
 flags.DEFINE_enum('processor_type', 'mpnn',
@@ -59,9 +61,14 @@ def main(unused_argv):
   # Use canonical CLRS-21 samplers.
   clrs21_spec = clrs.CLRS21
   logging.info('Using CLRS21 spec: %s', clrs21_spec)
-  train_sampler, spec = clrs.clrs21_train(FLAGS.algorithm,
-                                          folder=FLAGS.dataset_path)
-  val_sampler, _ = clrs.clrs21_val(FLAGS.algorithm, folder=FLAGS.dataset_path)
+  train_sampler, spec = clrs.create_dataset(
+      folder=FLAGS.dataset_path, algorithm=FLAGS.algorithm,
+      split='train', batch_size=FLAGS.batch_size)
+  train_sampler = train_sampler.as_numpy_iterator()
+  val_sampler, _ = clrs.create_dataset(
+      folder=FLAGS.dataset_path, algorithm=FLAGS.algorithm,
+      split='val', batch_size=FLAGS.batch_size)
+  val_sampler = val_sampler.as_numpy_iterator()
 
   model = clrs.models.BaselineModel(
       spec=spec,
@@ -69,11 +76,12 @@ def main(unused_argv):
       encode_hints=FLAGS.encode_hints,
       decode_hints=FLAGS.decode_hints,
       decode_diffs=FLAGS.decode_diffs,
+      use_lstm=FLAGS.use_lstm,
       kind=FLAGS.processor_type,
       learning_rate=FLAGS.learning_rate,
       checkpoint_path=FLAGS.checkpoint_path,
       freeze_processor=FLAGS.freeze_processor,
-      dummy_trajectory=train_sampler.next(FLAGS.batch_size),
+      dummy_trajectory=next(train_sampler),
   )
 
   def evaluate(step, model, feedback, extras=None, verbose=False):
@@ -95,10 +103,10 @@ def main(unused_argv):
     return {k: unpack(v) for k, v in out.items()}
 
   # Training loop.
-  best_score = 0.
+  best_score = -1.0  # Ensure that there is overwriting
 
   for step in range(FLAGS.train_steps):
-    feedback = train_sampler.next(FLAGS.batch_size)
+    feedback = next(train_sampler)
 
     # Initialize model.
     if step == 0:
@@ -123,7 +131,7 @@ def main(unused_argv):
       logging.info('(train) step %d: %s', step, train_stats)
 
       # Validation info.
-      val_feedback = val_sampler.next()  # full-batch
+      val_feedback = next(val_sampler)  # full-batch
       val_stats = evaluate(
           step, model, val_feedback, verbose=FLAGS.verbose_logging)
       logging.info('(val) step %d: %s', step, val_stats)
@@ -136,11 +144,13 @@ def main(unused_argv):
         model.save_model('best.pkl')
 
   # Training complete, evaluate on test set.
-  test_sampler, _ = clrs.clrs21_test(FLAGS.algorithm, folder=FLAGS.dataset_path)
+  test_sampler, _ = clrs.create_dataset(
+      folder=FLAGS.dataset_path, algorithm=FLAGS.algorithm,
+      split='test', batch_size=FLAGS.batch_size)
   logging.info('Restoring best model from checkpoint...')
   model.restore_model('best.pkl', only_load_processor=False)
 
-  test_feedback = test_sampler.next()  # full-batch
+  test_feedback = next(test_sampler.as_numpy_iterator())  # full-batch
   test_stats = evaluate(
       step, model, test_feedback, verbose=FLAGS.verbose_logging)
   logging.info('(test) step %d: %s', step, test_stats)
